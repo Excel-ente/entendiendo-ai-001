@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cómo Dotar a tu IA Local (Ollama) de "Superpoderes": Ejecutando Funciones Personalizadas</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            width: 80%;
+            max-width: 900px;
+            margin: 20px auto;
+            background-color: #fff;
+            padding: 20px 30px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+            margin-top: 1.5em;
+        }
+        h1 {
+            text-align: center;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 0.5em;
+            margin-top: 0;
+        }
+        h2 {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 0.3em;
+        }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            background-color: #eef;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        pre {
+            background-color: #2d2d2d; /* Dark background for code blocks */
+            color: #f8f8f2; /* Light text for code blocks */
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-size: 1em; /* Ensure code inside pre is not doubly shrunk */
+        }
+        .python .hljs-keyword { color: #f92672; } /* Example: Pink for keywords */
+        .python .hljs-string { color: #e6db74; } /* Example: Yellow for strings */
+        .python .hljs-comment { color: #75715e; } /* Example: Grey for comments */
+        .python .hljs-function { color: #a6e22e; } /* Example: Green for functions */
+        .python .hljs-params { color: #fd971f; } /* Example: Orange for params */
+        .python .hljs-number { color: #ae81ff; } /* Example: Purple for numbers */
+
+        .note {
+            background-color: #e7f3fe;
+            border-left: 6px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border-left: 6px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        ul {
+            list-style-type: disc;
+            margin-left: 20px;
+        }
+        li {
+            margin-bottom: 0.5em;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cómo Dotar a tu IA Local (Ollama) de "Superpoderes": Ejecutando Funciones Personalizadas desde el Chat</h1>
+
+        <p>¡Bienvenido/a a este nuevo artículo de <strong>entendiendo-ai</strong>! Hoy vamos a sumergirnos en una capacidad fascinante de los modelos de lenguaje grandes (LLMs): la habilidad de no solo generar texto, sino de entender intenciones y ejecutar acciones concretas en tu sistema. Específicamente, te enseñaremos cómo puedes hacer que tu modelo local Ollama interactúe con funciones Python personalizadas que tú mismo crearás.</p>
+        <p>Imagina poder pedirle a tu IA que cree un archivo Excel, busque algo en Google o te diga el clima, ¡todo directamente desde la interfaz de chat y ejecutándose localmente! Esto abre un mundo de posibilidades para crear agentes de IA mucho más útiles y versátiles, manteniendo la privacidad y el control que ofrecen los modelos locales.</p>
+        <p>En este tutorial, te guiaremos paso a paso para:
+            <ul>
+                <li>Definir funciones en Python que realicen tareas específicas.</li>
+                <li>Diseñar un prompt para que Ollama entienda cuándo llamar a estas funciones y con qué datos.</li>
+                <li>Crear un script "orquestador" en Python que conecte Ollama con tus funciones.</li>
+            </ul>
+        </p>
+        <p>¡Prepárate para darle superpoderes a tu IA!</p>
+
+        <h2>¿Qué es la Ejecución de Funciones (Function Calling) en Modelos de Lenguaje?</h2>
+        <p>Cuando interactúas con un LLM estándar, le das un texto (prompt) y él te devuelve otro texto. La ejecución de funciones, a menudo llamada "function calling" o "tool use", lleva esto un paso más allá. En lugar de solo generar texto, el LLM puede ser instruido para reconocer que una solicitud del usuario corresponde a una tarea específica para la cual existe una "herramienta" o "función" disponible.</p>
+        <p>El proceso generalmente involucra:</p>
+        <ol>
+            <li><strong>Detección de Intención:</strong> El LLM analiza la entrada del usuario para entender si la petición puede ser resuelta por alguna de las funciones que conoce.</li>
+            <li><strong>Extracción de Parámetros:</strong> Si el LLM identifica una función relevante, extrae de la conversación los datos (argumentos) necesarios para ejecutar esa función (por ejemplo, el nombre de un archivo, un término de búsqueda, una ciudad).</li>
+            <li><strong>Formato de Salida:</strong> El LLM devuelve una respuesta estructurada (comúnmente en formato JSON) que indica qué función se debe llamar y con qué argumentos.</li>
+        </ol>
+        <div class="note">
+            <p><strong>Importante:</strong> El LLM <em>no ejecuta directamente</em> el código de la función. Actúa como un cerebro que decide qué hacer y con qué información. Un código externo (que crearemos en Python) es el que realmente interpreta la decisión del LLM y ejecuta la función correspondiente.</p>
+        </div>
+
+        <h2>Requisitos Previos</h2>
+        <p>Antes de comenzar, asegúrate de tener lo siguiente:</p>
+        <ul>
+            <li><strong>Ollama instalado y un modelo descargado:</strong> Si aún no lo tienes, puedes seguir guías en la web oficial de Ollama. Para este tutorial, modelos como <code>llama3</code>, <code>mistral</code> o <code>phi3</code> funcionarán bien.</li>
+            <li><strong>Python instalado:</strong> Recomendamos Python 3.7 o superior.</li>
+            <li><strong>Librerías de Python:</strong> Necesitarás instalar algunas librerías. Puedes hacerlo abriendo tu terminal o línea de comandos y ejecutando:
+                <pre><code class="bash">pip install ollama openpyxl requests</code></pre>
+                <ul>
+                    <li><code>ollama</code>: Para interactuar con tu instancia local de Ollama desde Python.</li>
+                    <li><code>openpyxl</code>: Para crear y manipular archivos Excel.</li>
+                    <li><code>requests</code>: Para realizar solicitudes HTTP (la usaremos para la API del clima).</li>
+                    <li>La librería <code>webbrowser</code> (para abrir el navegador) generalmente viene incluida con Python.</li>
+                </ul>
+            </li>
+        </ul>
+
+        <h2>Paso 1: Definiendo Nuestras Funciones Personalizadas en Python</h2>
+        <p>Lo primero es crear las funciones en Python que queremos que nuestra IA pueda "llamar". Crearemos tres funciones de ejemplo:</p>
+
+        <h3>Función 1: Crear un Archivo Excel con una Frase</h3>
+        <p>Esta función tomará una frase y un nombre de archivo (opcional) y creará un archivo <code>.xlsx</code> con esa frase en la primera celda.</p>
+        <pre><code class="python">
+# funciones_custom.py
+import openpyxl
+import webbrowser
+import requests
+import json # Necesario para la función de clima si la API devuelve JSON
+
+def crear_excel_con_frase(frase: str, nombre_archivo: str = "documento_creado.xlsx") -> str:
+    """
+    Crea un archivo Excel (.xlsx) con una frase específica en la celda A1.
+
+    :param frase: El texto que se escribirá en el Excel.
+    :param nombre_archivo: El nombre con el que se guardará el archivo Excel.
+    :return: Mensaje de confirmación.
+    """
+    try:
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet["A1"] = frase
+        workbook.save(nombre_archivo)
+        return f"Excel '{nombre_archivo}' creado exitosamente con la frase: '{frase}'."
+    except Exception as e:
+        return f"Error al crear el Excel: {e}"
+
+# Ejemplo de uso (para probar la función directamente):
+# if __name__ == "__main__":
+#     print(crear_excel_con_frase("Hola desde Python y Ollama!", "mi_excel.xlsx"))
+        </code></pre>
+        <p><strong>Explicación:</strong></p>
+        <ul>
+            <li>Importamos <code>openpyxl</code>.</li>
+            <li>La función <code>crear_excel_con_frase</code> recibe <code>frase</code> y <code>nombre_archivo</code>.</li>
+            <li>Crea un nuevo libro de trabajo (<code>Workbook</code>), selecciona la hoja activa, escribe la frase en la celda "A1" y guarda el archivo.</li>
+            <li>Devuelve un mensaje de confirmación o de error.</li>
+        </ul>
+
+        <h3>Función 2: Abrir Chrome y Buscar en Google</h3>
+        <p>Esta función abrirá el navegador web predeterminado (idealmente Chrome si está configurado así, pero funcionará con el que tengas) y realizará una búsqueda en Google.</p>
+        <pre><code class="python">
+# Continuación de funciones_custom.py
+
+def abrir_chrome_y_buscar(termino_busqueda: str) -> str:
+    """
+    Abre el navegador web predeterminado y realiza una búsqueda en Google.
+
+    :param termino_busqueda: Lo que el usuario quiere buscar.
+    :return: Mensaje de confirmación.
+    """
+    try:
+        url = f"https://www.google.com/search?q={termino_busqueda.replace(' ', '+')}"
+        webbrowser.open_new_tab(url)
+        return f"Abriendo navegador y buscando en Google: '{termino_busqueda}'."
+    except Exception as e:
+        return f"Error al intentar abrir el navegador o buscar: {e}"
+
+# Ejemplo de uso (para probar la función directamente):
+# if __name__ == "__main__":
+#     print(abrir_chrome_y_buscar("últimas noticias de IA"))
+        </code></pre>
+        <p><strong>Explicación:</strong></p>
+        <ul>
+            <li>Importamos <code>webbrowser</code>.</li>
+            <li>La función <code>abrir_chrome_y_buscar</code> toma un <code>termino_busqueda</code>.</li>
+            <li>Construye la URL de búsqueda de Google y usa <code>webbrowser.open_new_tab()</code> para abrirla.</li>
+        </ul>
+
+        <h3>Función 3: Obtener el Clima Actual</h3>
+        <p>Esta función obtendrá el clima actual para una ciudad específica utilizando la API de OpenWeatherMap.</p>
+        <div class="warning">
+            <p><strong>API Key de OpenWeatherMap:</strong> Para usar esta función, necesitarás una API key gratuita de <a href="https://openweathermap.org/appid" target="_blank">OpenWeatherMap</a>.</p>
+            <ol>
+                <li>Ve a <a href="https://openweathermap.org/" target="_blank">OpenWeatherMap</a> y crea una cuenta.</li>
+                <li>Una vez registrado, ve a la sección "API keys" en tu perfil.</li>
+                <li>Genera una nueva clave (la clave "Default" que se crea al registrarte suele funcionar tras unos minutos/horas de activación).</li>
+                <li>Copia esta clave. La necesitarás en el script del orquestador o puedes ponerla directamente en la función para este ejemplo (aunque no es la mejor práctica para producción).</li>
+            </ol>
+        </div>
+        <pre><code class="python">
+# Continuación de funciones_custom.py
+
+# Deberías reemplazar "TU_API_KEY_AQUI" con tu API key real de OpenWeatherMap
+OPENWEATHERMAP_API_KEY = "TU_API_KEY_AQUI" 
+
+def obtener_clima_actual(ciudad: str) -> str:
+    """
+    Obtiene el estado del tiempo actual para una ciudad específica usando OpenWeatherMap.
+
+    :param ciudad: La ciudad para la cual se quiere obtener el clima.
+    :return: Cadena con la información del clima o un mensaje de error.
+    """
+    if OPENWEATHERMAP_API_KEY == "TU_API_KEY_AQUI":
+        return "Error: Por favor, configura tu API key de OpenWeatherMap en la función."
+
+    base_url = "http://api.openweathermap.org/data/2.5/weather"
+    params = {
+        "q": ciudad,
+        "appid": OPENWEATHERMAP_API_KEY,
+        "units": "metric",  # Para temperatura en Celsius
+        "lang": "es"       # Para descripción en español
+    }
+    try:
+        response = requests.get(base_url, params=params)
+        response.raise_for_status() # Lanza un error para respuestas HTTP malas (4XX o 5XX)
+        data = response.json()
+
+        if data["cod"] == 200:
+            main = data["main"]
+            weather_desc = data["weather"][0]["description"]
+            temp = main["temp"]
+            humidity = main["humidity"]
+            return (f"Clima en {ciudad}: {weather_desc.capitalize()}, "
+                    f"Temperatura: {temp}°C, Humedad: {humidity}%.")
+        else:
+            return f"No se pudo obtener el clima para {ciudad}. Respuesta: {data.get('message', 'Error desconocido')}"
+    except requests.exceptions.HTTPError as http_err:
+        return f"Error HTTP al obtener el clima: {http_err} - {response.text}"
+    except requests.exceptions.RequestException as req_err:
+        return f"Error de red al obtener el clima: {req_err}"
+    except Exception as e:
+        return f"Error inesperado al obtener el clima: {e}"
+
+# Ejemplo de uso (para probar la función directamente):
+# if __name__ == "__main__":
+#     # Asegúrate de haber puesto tu API Key arriba antes de probar
+#     print(obtener_clima_actual("Buenos Aires"))
+#     print(obtener_clima_actual("Ciudad Inventada"))
+        </code></pre>
+        <p><strong>Explicación:</strong></p>
+        <ul>
+            <li>Importamos <code>requests</code> y <code>json</code>.</li>
+            <li>Se define <code>OPENWEATHERMAP_API_KEY</code>. <strong>¡Recuerda reemplazar <code>"TU_API_KEY_AQUI"</code>!</strong></li>
+            <li>La función construye una URL para la API de OpenWeatherMap, incluyendo la ciudad, la API key, y unidades (métrico para Celsius).</li>
+            <li>Realiza una solicitud GET, parsea la respuesta JSON y extrae la información relevante del clima.</li>
+            <li>Incluye manejo básico de errores.</li>
+        </ul>
+        <p>Guarda estas tres funciones en un archivo llamado <code>funciones_custom.py</code>.</p>
+
+        <h2>Paso 2: Diseñando el "Prompt" para la Detección de Intención y Extracción de Parámetros</h2>
+        <p>Ahora viene la parte crucial: ¿cómo le decimos al LLM (Ollama) qué funciones tiene disponibles y cómo queremos que nos indique cuál usar? Esto se logra a través de un "prompt" cuidadosamente diseñado, que generalmente se pasa como un mensaje de sistema o al inicio de la conversación.</p>
+        <p>La idea es que el LLM, en lugar de responder directamente a ciertas preguntas, nos devuelva un objeto JSON que nuestro código Python pueda interpretar para llamar a la función correcta con los argumentos correctos.</p>
+
+        <p><strong>Estrategia de Prompting:</strong></p>
+        <ul>
+            <li><strong>Descripción de las funciones:</strong> Debemos darle al LLM una descripción clara de cada función, para qué sirve y qué parámetros necesita (nombre, tipo, si es obligatorio u opcional).</li>
+            <li><strong>Formato de salida deseado:</strong> Le pediremos al LLM que, si decide que una función debe ser llamada, su respuesta sea *únicamente* un JSON con una estructura específica, como: <code>{"funcion_a_llamar": "nombre_funcion", "argumentos": {"arg1": "valor1", ...}}</code>.</li>
+        </ul>
+
+        <p>Aquí tienes un ejemplo de cómo podría ser este prompt. Lo incorporaremos en nuestro script Python más adelante:</p>
+        <pre><code class="text">
+Eres un asistente IA útil y eficiente. Tu tarea es analizar la solicitud del usuario.
+Si la solicitud del usuario puede ser resuelta por una de las funciones que te describo a continuación,
+debes responder *únicamente* con un objeto JSON que especifique la función a llamar y sus argumentos.
+No añadas explicaciones, saludos, ni ningún otro texto fuera del objeto JSON.
+Si la solicitud del usuario no se corresponde claramente con ninguna de las funciones disponibles, o si es una pregunta general,
+simplemente responde a la pregunta o continúa la conversación normalmente sin generar un JSON.
+
+Funciones disponibles:
+1.  **crear_excel_con_frase**:
+    * Descripción: Crea un archivo Excel (.xlsx) con una frase específica en la celda A1. Útil para guardar notas rápidas o datos en formato de hoja de cálculo.
+    * Parámetros:
+        * `frase` (string, obligatorio): El texto que se escribirá en la celda A1 del Excel.
+        * `nombre_archivo` (string, opcional, por defecto "documento_creado.xlsx"): El nombre deseado para el archivo Excel. Debe terminar en .xlsx.
+
+2.  **abrir_chrome_y_buscar**:
+    * Descripción: Abre el navegador web predeterminado y realiza una búsqueda en Google con el término proporcionado. Útil para encontrar información en la web.
+    * Parámetros:
+        * `termino_busqueda` (string, obligatorio): El texto o la pregunta que el usuario quiere buscar en Google.
+
+3.  **obtener_clima_actual**:
+    * Descripción: Obtiene y devuelve el estado del tiempo actual (descripción, temperatura, humedad) para una ciudad específica.
+    * Parámetros:
+        * `ciudad` (string, obligatorio): El nombre de la ciudad para la cual se quiere obtener el pronóstico del tiempo.
+
+Ejemplos de cómo debes responder:
+
+Si el usuario dice: "Crea un excel que diga 'Lista de compras' y llámalo compras.xlsx"
+Tu respuesta DEBE SER:
+{"funcion_a_llamar": "crear_excel_con_frase", "argumentos": {"frase": "Lista de compras", "nombre_archivo": "compras.xlsx"}}
+
+Si el usuario dice: "Busca en Google el precio del bitcoin hoy"
+Tu respuesta DEBE SER:
+{"funcion_a_llamar": "abrir_chrome_y_buscar", "argumentos": {"termino_busqueda": "precio del bitcoin hoy"}}
+
+Si el usuario dice: "¿Cómo está el tiempo en Londres?"
+Tu respuesta DEBE SER:
+{"funcion_a_llamar": "obtener_clima_actual", "argumentos": {"ciudad": "Londres"}}
+
+Si el usuario dice: "Hola, ¿cómo estás?" o "¿Cuál es la capital de Francia?"
+Debes responder de forma conversacional, por ejemplo: "¡Hola! Estoy bien, ¿en qué puedo ayudarte?" o "La capital de Francia es París."
+        </code></pre>
+        <p>Este prompt es bastante explícito. Le dice al LLM qué hacer, cómo formatear la salida para las llamadas a función, y qué hacer si no hay una función que coincida. La claridad aquí es clave para obtener resultados consistentes.</p>
+
+        <h2>Paso 3: El Orquestador en Python - Conectando Ollama con Nuestras Funciones</h2>
+        <p>Ahora crearemos el script principal en Python que actuará como "orquestador". Este script hará lo siguiente:</p>
+        <ol>
+            <li>Importará la librería <code>ollama</code> y nuestras funciones personalizadas del archivo <code>funciones_custom.py</code>.</li>
+            <li>Definirá el prompt del sistema que acabamos de diseñar.</li>
+            <li>Entrará en un bucle para chatear con el usuario.</li>
+            <li>Tomará la entrada del usuario.</li>
+            <li>Enviará la conversación (incluyendo el prompt del sistema y la entrada del usuario) al modelo Ollama.</li>
+            <li>Analizará la respuesta del LLM:
+                <ul>
+                    <li>Si es un JSON que indica una llamada a función, ejecutará la función correspondiente.</li>
+                    <li>Si no, mostrará la respuesta del LLM como texto.</li>
+                </ul>
+            </li>
+            <li>Mostrará al usuario el resultado de la función ejecutada o la respuesta textual del LLM.</li>
+        </ol>
+
+        <p>Crea un nuevo archivo Python, por ejemplo <code>agente_ollama.py</code>, y pega el siguiente código:</p>
+        <pre><code class="python">
+# agente_ollama.py
+import ollama
+import json
+import funciones_custom # Importamos nuestro módulo con las funciones
+
+# Configuración del modelo de Ollama a usar
+MODELO_OLLAMA = "llama3" # Puedes cambiarlo por 'mistral', 'phi3', etc.
+
+# Prompt del sistema detallado
+SYSTEM_PROMPT = """
+Eres un asistente IA útil y eficiente. Tu tarea es analizar la solicitud del usuario.
+Si la solicitud del usuario puede ser resuelta por una de las funciones que te describo a continuación,
+debes responder *únicamente* con un objeto JSON que especifique la función a llamar y sus argumentos.
+No añadas explicaciones, saludos, ni ningún otro texto fuera del objeto JSON.
+Si la solicitud del usuario no se corresponde claramente con ninguna de las funciones disponibles, o si es una pregunta general,
+simplemente responde a la pregunta o continúa la conversación normalmente sin generar un JSON.
+
+Funciones disponibles:
+1.  **crear_excel_con_frase**:
+    * Descripción: Crea un archivo Excel (.xlsx) con una frase específica en la celda A1. Útil para guardar notas rápidas o datos en formato de hoja de cálculo.
+    * Parámetros:
+        * `frase` (string, obligatorio): El texto que se escribirá en la celda A1 del Excel.
+        * `nombre_archivo` (string, opcional, por defecto "documento_creado.xlsx"): El nombre deseado para el archivo Excel. Debe terminar en .xlsx.
+
+2.  **abrir_chrome_y_buscar**:
+    * Descripción: Abre el navegador web predeterminado y realiza una búsqueda en Google con el término proporcionado. Útil para encontrar información en la web.
+    * Parámetros:
+        * `termino_busqueda` (string, obligatorio): El texto o la pregunta que el usuario quiere buscar en Google.
+
+3.  **obtener_clima_actual**:
+    * Descripción: Obtiene y devuelve el estado del tiempo actual (descripción, temperatura, humedad) para una ciudad específica.
+    * Parámetros:
+        * `ciudad` (string, obligatorio): El nombre de la ciudad para la cual se quiere obtener el pronóstico del tiempo.
+
+Ejemplos de cómo debes responder:
+
+Si el usuario dice: "Crea un excel que diga 'Lista de compras' y llámalo compras.xlsx"
+Tu respuesta DEBE SER:
+{"funcion_a_llamar": "crear_excel_con_frase", "argumentos": {"frase": "Lista de compras", "nombre_archivo": "compras.xlsx"}}
+
+Si el usuario dice: "Busca en Google el precio del bitcoin hoy"
+Tu respuesta DEBE SER:
+{"funcion_a_llamar": "abrir_chrome_y_buscar", "argumentos": {"termino_busqueda": "precio del bitcoin hoy"}}
+
+Si el usuario dice: "¿Cómo está el tiempo en Londres?"
+Tu respuesta DEBE SER:
+{"funcion_a_llamar": "obtener_clima_actual", "argumentos": {"ciudad": "Londres"}}
+
+Si el usuario dice: "Hola, ¿cómo estás?" o "¿Cuál es la capital de Francia?"
+Debes responder de forma conversacional, por ejemplo: "¡Hola! Estoy bien, ¿en qué puedo ayudarte?" o "La capital de Francia es París."
+"""
+
+def procesar_respuesta_llm(respuesta_llm_texto):
+    """
+    Intenta parsear la respuesta del LLM como JSON.
+    Si tiene el formato esperado para una llamada a función, devuelve los detalles.
+    De lo contrario, devuelve None.
+    """
+    try:
+        # A veces el LLM puede envolver el JSON en bloques de código markdown ```json ... ```
+        # o añadir texto antes/después. Intentamos extraer el JSON puro.
+        if "```json" in respuesta_llm_texto:
+            json_str = respuesta_llm_texto.split("```json")[1].split("```")[0].strip()
+        elif respuesta_llm_texto.strip().startswith("{") and respuesta_llm_texto.strip().endswith("}"):
+            json_str = respuesta_llm_texto.strip()
+        else:
+            return None # No parece ser el JSON que esperamos
+
+        data = json.loads(json_str)
+        if "funcion_a_llamar" in data and "argumentos" in data:
+            return data
+    except json.JSONDecodeError:
+        # No es un JSON válido o no tiene el formato esperado
+        pass
+    except Exception:
+        # Otro error al procesar
+        pass
+    return None
+
+def main():
+    print(f"Iniciando chat con el modelo {MODELO_OLLAMA}. Escribe 'salir' para terminar.")
+    print("Asegúrate de que Ollama esté corriendo y el modelo esté disponible.")
+    print("Y no olvides poner tu API Key de OpenWeatherMap en funciones_custom.py!\n")
+
+    # Historial de conversación para mantener contexto (simple)
+    # El mensaje del sistema se añade al principio
+    mensajes = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    while True:
+        try:
+            user_input = input("Tú: ")
+            if user_input.lower() == 'salir':
+                print("Saliendo...")
+                break
+
+            # Añadir mensaje del usuario al historial
+            mensajes.append({"role": "user", "content": user_input})
+
+            # Llamar a Ollama
+            response = ollama.chat(
+                model=MODELO_OLLAMA,
+                messages=mensajes
+            )
+            respuesta_llm_texto = response['message']['content']
+
+            # Añadir respuesta del LLM al historial (para que el LLM tenga contexto si no es una llamada a función)
+            mensajes.append({"role": "assistant", "content": respuesta_llm_texto})
+            # Limitar el historial para no exceder límites de contexto (opcional, pero buena práctica)
+            if len(mensajes) > 10: # Mantiene el system prompt + los últimos 9 intercambios
+                 mensajes = [mensajes[0]] + mensajes[-9:]
+
+
+            print(f"\nLLM (raw): {respuesta_llm_texto}") # Para depuración
+
+            # Procesar la respuesta del LLM
+            info_funcion = procesar_respuesta_llm(respuesta_llm_texto)
+
+            if info_funcion:
+                nombre_funcion = info_funcion["funcion_a_llamar"]
+                argumentos = info_funcion["argumentos"]
+                
+                resultado_ejecucion = ""
+                print(f"LLM quiere llamar a la función: {nombre_funcion} con argumentos: {argumentos}")
+
+                if nombre_funcion == "crear_excel_con_frase":
+                    # El parámetro 'nombre_archivo' es opcional en la función Python,
+                    # pero el LLM podría no enviarlo si no se especifica.
+                    # La función Python tiene un valor por defecto.
+                    resultado_ejecucion = funciones_custom.crear_excel_con_frase(
+                        frase=argumentos.get("frase"),
+                        nombre_archivo=argumentos.get("nombre_archivo") # Si es None, la función usará su default
+                    )
+                elif nombre_funcion == "abrir_chrome_y_buscar":
+                    resultado_ejecucion = funciones_custom.abrir_chrome_y_buscar(
+                        termino_busqueda=argumentos.get("termino_busqueda")
+                    )
+                elif nombre_funcion == "obtener_clima_actual":
+                    resultado_ejecucion = funciones_custom.obtener_clima_actual(
+                        ciudad=argumentos.get("ciudad")
+                    )
+                else:
+                    resultado_ejecucion = f"Error: Función '{nombre_funcion}' no reconocida por el orquestador."
+                
+                print(f"Resultado de la función: {resultado_ejecucion}\n")
+                # Podríamos añadir el resultado de la función también al historial para que el LLM lo sepa
+                # mensajes.append({"role": "tool", "content": resultado_ejecucion }) # O 'assistant' si prefieres
+            else:
+                # Si no es una llamada a función, simplemente mostramos la respuesta del LLM
+                print(f"Agente IA: {respuesta_llm_texto}\n")
+
+        except Exception as e:
+            print(f"Ocurrió un error: {e}")
+            # Podrías querer romper el bucle aquí o manejarlo de otra forma
+            # break
+
+if __name__ == "__main__":
+    # Verificar que el servidor Ollama está corriendo
+    try:
+        ollama.list() 
+        print("Conexión con Ollama exitosa.")
+    except Exception as e:
+        print(f"Error al conectar con Ollama. Asegúrate de que Ollama esté ejecutándose.")
+        print(f"Detalle del error: {e}")
+        exit()
+
+    # Verificar API key de OpenWeatherMap (solo una advertencia)
+    if funciones_custom.OPENWEATHERMAP_API_KEY == "TU_API_KEY_AQUI":
+        print("\nADVERTENCIA: La API key de OpenWeatherMap no parece estar configurada en `funciones_custom.py`.")
+        print("La función `obtener_clima_actual` no funcionará correctamente hasta que la configures.\n")
+    
+    main()
+        </code></pre>
+        <p><strong>Puntos Clave del Orquestador:</strong></p>
+        <ul>
+            <li><strong><code>MODELO_OLLAMA</code></strong>: Define qué modelo de Ollama usarás. ¡Asegúrate de que esté descargado!</li>
+            <li><strong><code>SYSTEM_PROMPT</code></strong>: Contiene las instrucciones detalladas para el LLM que diseñamos antes.</li>
+            <li><strong><code>procesar_respuesta_llm()</code></strong>: Esta función es crucial. Intenta extraer y parsear el JSON de la respuesta del LLM. Se ha añadido lógica para manejar el caso en que el LLM envuelva el JSON en bloques de código markdown (<code>```json ... ```</code>), lo cual es común.</li>
+            <li><strong><code>main()</code> loop</strong>:
+                <ul>
+                    <li>Mantiene un historial de mensajes (<code>mensajes</code>) para darle contexto al LLM. El mensaje del sistema está siempre al principio.</li>
+                    <li>Llama a <code>ollama.chat()</code> con el historial de mensajes.</li>
+                    <li>Si <code>procesar_respuesta_llm()</code> devuelve información de una función, se busca la función correspondiente en nuestro módulo <code>funciones_custom</code> y se ejecuta con los argumentos extraídos usando <code>argumentos.get("nombre_parametro")</code> para manejar parámetros opcionales de forma segura.</li>
+                    <li>Si no, se trata como una respuesta de chat normal.</li>
+                </ul>
+            </li>
+            <li>**Manejo de Historial Simple**: Se añade la respuesta del LLM al historial para que pueda tener contexto en los siguientes turnos. También se implementa un recorte básico del historial para evitar que crezca indefinidamente.</li>
+            <li><strong>Verificaciones Iniciales</strong>: Antes de iniciar el chat, se verifica la conexión con Ollama y se recuerda configurar la API key del clima.</li>
+        </ul>
+
+        <h2>Paso 4: ¡Probando Nuestro Agente!</h2>
+        <p>Para probar tu nuevo agente:</p>
+        <ol>
+            <li>Asegúrate de que tu servidor Ollama esté corriendo en tu terminal (ejecuta <code>ollama serve</code> si es necesario, aunque usualmente corre como servicio).</li>
+            <li>Asegúrate de tener el modelo (ej. <code>llama3</code>) descargado: <code>ollama pull llama3</code>.</li>
+            <li>Guarda el código de las funciones en <code>funciones_custom.py</code> (¡y pon tu API key de OpenWeatherMap!).</li>
+            <li>Guarda el código del orquestador en <code>agente_ollama.py</code>.</li>
+            <li>Abre una terminal en el directorio donde guardaste los archivos y ejecuta: <code>python agente_ollama.py</code></li>
+        </ol>
+
+        <p>Ahora puedes interactuar con él. Prueba con diferentes frases:</p>
+
+        <p><strong>Ejemplo 1: Crear un Excel</strong></p>
+        <p><code>Tú: Crea un excel que diga 'Tareas pendientes para el lunes' y llámalo tareas_lunes.xlsx</code></p>
+        <p><em>Salida esperada del LLM (mostrada para depuración):</em></p>
+        <pre><code>
+LLM (raw): {"funcion_a_llamar": "crear_excel_con_frase", "argumentos": {"frase": "Tareas pendientes para el lunes", "nombre_archivo": "tareas_lunes.xlsx"}}
+        </code></pre>
+        <p><em>Salida del orquestador:</em></p>
+        <pre><code>
+LLM quiere llamar a la función: crear_excel_con_frase con argumentos: {'frase': 'Tareas pendientes para el lunes', 'nombre_archivo': 'tareas_lunes.xlsx'}
+Resultado de la función: Excel 'tareas_lunes.xlsx' creado exitosamente con la frase: 'Tareas pendientes para el lunes'.
+        </code></pre>
+        <p>(Y deberías ver el archivo <code>tareas_lunes.xlsx</code> creado en el mismo directorio).</p>
+
+        <p><strong>Ejemplo 2: Buscar en Google</strong></p>
+        <p><code>Tú: Podrías buscar en google las noticias sobre inteligencia artificial de esta semana?</code></p>
+        <p><em>Salida esperada del LLM:</em></p>
+        <pre><code>
+LLM (raw): {"funcion_a_llamar": "abrir_chrome_y_buscar", "argumentos": {"termino_busqueda": "noticias sobre inteligencia artificial de esta semana"}}
+        </code></pre>
+        <p><em>Salida del orquestador:</em></p>
+        <pre><code>
+LLM quiere llamar a la función: abrir_chrome_y_buscar con argumentos: {'termino_busqueda': 'noticias sobre inteligencia artificial de esta semana'}
+Resultado de la función: Abriendo navegador y buscando en Google: 'noticias sobre inteligencia artificial de esta semana'.
+        </code></pre>
+        <p>(Y tu navegador debería abrirse con la búsqueda).</p>
+
+        <p><strong>Ejemplo 3: Obtener el Clima</strong></p>
+        <p><code>Tú: dime el tiempo en Madrid</code></p>
+        <p><em>Salida esperada del LLM:</em></p>
+        <pre><code>
+LLM (raw): {"funcion_a_llamar": "obtener_clima_actual", "argumentos": {"ciudad": "Madrid"}}
+        </code></pre>
+        <p><em>Salida del orquestador (si la API key está bien configurada):</em></p>
+        <pre><code>
+LLM quiere llamar a la función: obtener_clima_actual con argumentos: {'ciudad': 'Madrid'}
+Resultado de la función: Clima en Madrid: Cielo despejado, Temperatura: 22°C, Humedad: 45%. (El resultado real variará)
+        </code></pre>
+
+        <p><strong>Ejemplo 4: Conversación Normal</strong></p>
+        <p><code>Tú: ¿Cuál es tu modelo base?</code></p>
+        <p><em>Salida esperada del LLM (directamente, sin JSON):</em></p>
+        <pre><code>
+LLM (raw): Soy un modelo de lenguaje grande, entrenado por [nombre del desarrollador del modelo base, ej: Meta para Llama].
+        </code></pre>
+        <p><em>Salida del orquestador:</em></p>
+        <pre><code>
+Agente IA: Soy un modelo de lenguaje grande, entrenado por Meta.
+        </code></pre>
+
+        <h2>Consideraciones Avanzadas y Próximos Pasos</h2>
+        <p>Lo que hemos construido es una base sólida. Aquí hay algunas ideas para expandirlo:</p>
+        <ul>
+            <li><strong>Manejo de Errores Más Robusto:</strong> Mejorar la validación de los argumentos que devuelve el LLM. ¿Qué pasa si falta un argumento obligatorio?</li>
+            <li><strong>Feedback al LLM sobre la Ejecución:</strong> Después de ejecutar una función, podrías enviar el resultado de vuelta al LLM (como un mensaje con rol "tool" o "assistant") y pedirle que genere una respuesta más natural al usuario. Por ejemplo, en lugar de solo mostrar "Excel creado", el LLM podría decir "¡Listo! He creado tu archivo 'tareas_lunes.xlsx'. ¿Necesitas algo más?".</li>
+            <li><strong>Descubrimiento Dinámico de Funciones:</strong> En lugar de codificar las descripciones de las funciones en el prompt, podrías generarlas a partir de los docstrings de tus funciones Python.</li>
+            <li><strong>Seguridad:</strong> Siempre sé muy cuidadoso al permitir que un LLM desencadene acciones en tu sistema, especialmente si las funciones pueden modificar archivos o interactuar con internet de formas más complejas. Valida y sanitiza las entradas.</li>
+            <li><strong>Interfaz Gráfica:</strong> Podrías integrar esto con una interfaz de chat más amigable usando librerías como Gradio, Streamlit o Flask.</li>
+        </ul>
+
+        <h2>Conclusión</h2>
+        <p>¡Felicidades! Has aprendido cómo darle a tu modelo Ollama local la capacidad de ejecutar funciones personalizadas. Has visto cómo definir estas funciones en Python, cómo instruir al LLM para que las reconozca mediante un prompt, y cómo construir un orquestador que cierre el círculo y ejecute las acciones deseadas.</p>
+        <p>Esta técnica de "function calling" o "tool use" es increíblemente poderosa y transforma a los LLMs de simples generadores de texto a verdaderos agentes capaces de interactuar con el mundo digital (¡y potencialmente físico!) de maneras mucho más significativas. El hecho de poder hacerlo con modelos locales como los que ofrece Ollama te da un control y una privacidad sin precedentes.</p>
+        <p>Te animamos a experimentar con tus propias funciones, a refinar el prompt y a explorar las muchas aplicaciones que esto puede tener. ¿Qué herramientas le darás a tu IA?</p>
+        <p>Esperamos que este artículo te haya sido de gran utilidad. ¡No dudes en dejar tus comentarios, preguntas o compartir los proyectos que construyas con esta base!</p>
+
+    </div>
+    <script>
+        // Podrías añadir JavaScript aquí en el futuro para:
+        // 1. Resaltado de sintaxis para los bloques de código (usando alguna librería ligera como highlight.js si encuentras una versión que se pueda integrar fácilmente sin archivos externos)
+        // 2. Interacción con elementos de la página, si fuera necesario.
+        // Por ahora, lo mantenemos simple.
+
+        // Ejemplo de cómo podrías intentar aplicar resaltado si tuvieras una librería
+        // document.addEventListener('DOMContentLoaded', (event) => {
+        //   document.querySelectorAll('pre code.python').forEach((block) => {
+        //     // Aquí iría la lógica de resaltado, ej: hljs.highlightBlock(block);
+        //     // Para la solución actual con clases CSS simples, no se necesita JS activo.
+        //   });
+        // });
+        console.log("Artículo cargado. Fecha de generación (simulada): " + new Date().toLocaleDateString());
+    </script>
+</body>
+</html>
